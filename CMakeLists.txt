@@ -16,3 +16,5 @@ set(CPACK_SOURCE_IGNORE_FILES
 )
 set(CPACK_VERBATIM_VARIABLES YES)
 include(CPack)
+include_directories(BEFORE /opt/homebrew/Cellar/openssl@3/3.2.0_1/include)
+
