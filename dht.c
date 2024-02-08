@@ -24,6 +24,7 @@
 struct peer predecessor; 
 struct peer self;
 struct peer successor; 
+struct peer anchor;
 int dht_socket;
 
 
@@ -97,6 +98,31 @@ static void dht_send(struct dht_message* msg, const struct peer* peer) {
     }
 }
 
+/**
+ * Process the given join
+*/
+static void process_join(struct dht_message* join) {
+    if(self.id == predecessor.id && self.id == successor.id) {
+        predecessor = join->peer;
+        successor = join->peer;
+        struct dht_message msg = {
+            .flags = NOTIFY,
+            .hash = 0,
+            .peer = self,
+        };
+        dht_send(&msg, &predecessor);
+    } else if(is_responsible(predecessor.id, self.id, join->peer.id)) {
+        struct dht_message msg = {
+            .flags = NOTIFY,
+            .hash = 0,
+            .peer = self,
+        };
+        predecessor = join->peer;
+        dht_send(&msg, &predecessor);
+    } else {
+        dht_send(join, &successor);
+    }
+}
 
 /**
  * Process the given lookup
@@ -155,6 +181,38 @@ static void process_reply(const struct dht_message* reply) {
     lookup_cache[oldest_idx].peer = reply->peer;
 }
 
+/**
+ * Process the notify
+*/
+static void process_stabilize(struct dht_message* stabilize) {
+    if(self.id == predecessor.id && self.id == successor.id) {
+        predecessor = stabilize->peer;
+    } else if(predecessor.id == successor.id) {
+        predecessor = stabilize->peer;
+    }
+    struct dht_message notify = {
+        .flags = NOTIFY,
+        .hash = 0,
+        .peer = predecessor,
+    };
+    
+    if(self.id == predecessor.id) {
+        predecessor = stabilize->peer;
+    }
+    dht_send(&notify, &(stabilize->peer));
+}
+
+static void process_notify(struct dht_message* notify) {
+    if(self.id == predecessor.id && self.id == successor.id) {
+        successor = notify->peer;
+        predecessor = notify->peer;
+    }
+    else if(notify->peer.id > self.id) {
+        successor = notify->peer;
+    } else if(notify->peer.id < self.id && notify->peer.id < successor.id) {
+        successor = notify->peer;
+    }
+}
 
 /**
  * Process an incoming DHT message
@@ -164,6 +222,12 @@ static void dht_process_message(struct dht_message* msg) {
         process_lookup(msg);
     } else if (msg->flags == REPLY) {
         process_reply(msg);
+    } else if (msg->flags == JOIN) {
+        process_join(msg);
+    } else if (msg->flags == STABILIZE) {
+        process_stabilize(msg);
+    } else if (msg->flags == NOTIFY) {
+        process_notify(msg);
     } else {
         printf("Received invalid DHT Message\n");
     }
@@ -193,7 +257,7 @@ static ssize_t dht_recv(struct dht_message* msg, struct sockaddr* address, sockl
  * Note that this returning false does not imply the passed peer's predecessor is
  * responsible for the ID, this is not generally the case. 
  */
-static bool is_responsible(dht_id peer_predecessor, dht_id peer, dht_id id) {
+int is_responsible(dht_id peer_predecessor, dht_id peer, dht_id id) {
     // Gotta store differences explicitly as unsigned since C promotes them to signed otherwise...
     const dht_id distance_peer_predecessor = peer_predecessor - id;
     const dht_id distance_peer = peer - id;
@@ -252,4 +316,22 @@ void dht_handle_socket(void) {
 
     dht_recv(&msg, &address, &address_length);
     dht_process_message(&msg);
+}
+
+void dht_join(void) {
+    struct dht_message msg = {
+        .flags = JOIN,
+        .hash = 0,
+        .peer = self,
+    };
+    dht_send(&msg, &anchor);
+}
+
+void dht_stabilize(void) {
+    struct dht_message msg = {
+        .flags = STABILIZE,
+        .hash = 0,
+        .peer = self,
+    };
+    dht_send(&msg, &successor);
 }

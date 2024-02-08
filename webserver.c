@@ -19,6 +19,7 @@
 #include "dht.h"
 
 #define MAX_RESOURCES 100
+#define STABILIZE_INTERVAL 1000
 
 
 struct tuple resources[MAX_RESOURCES] = {
@@ -368,16 +369,30 @@ int main(int argc, char** argv) {
 
     // Check if the program is running in static mode or join mode.
     const bool static_mode = getenv("PRED_ID") && getenv("PRED_IP") && getenv("PRED_PORT") && getenv("SUCC_ID") && getenv("SUCC_IP") && getenv("SUCC_PORT");
+    const bool dynamic_mode = ((argc == 6 || argc == 4) ? true : false) && !static_mode;
 
     if (static_mode) {
         // If running in static mode, use the provided predecessor and successor information.
         predecessor = peer_from_args(getenv("PRED_ID"), getenv("PRED_IP"), getenv("PRED_PORT"));
         successor = peer_from_args(getenv("SUCC_ID"), getenv("SUCC_IP"), getenv("SUCC_PORT"));
+    } else if(dynamic_mode) {
+        if(argc == 4) {
+            predecessor = self;
+            successor = self;
+        }
+        if(argc == 6) {
+            predecessor = self;
+            successor = self;
+            anchor = peer_from_args("0", argv[4], argv[5]); 
+            dht_join();
+        }
     } else {
         // If neither static mode nor join mode, set predecessor and successor to self.
         predecessor = self;
         successor = self;
     }
+
+    unsigned long last_stabilize_time = time_ms();
 
     // Create an array of pollfd structures to monitor sockets.
     struct pollfd sockets[3] = {
@@ -387,9 +402,17 @@ int main(int argc, char** argv) {
 
     struct connection_state state = {0};
     while (true) {
+        unsigned long current_time = time_ms();
+        if(current_time - last_stabilize_time >= STABILIZE_INTERVAL) {
+            dht_stabilize();
+            last_stabilize_time = current_time;
+        }
+
+        int timeout = (int)(STABILIZE_INTERVAL - (current_time - last_stabilize_time));
+        timeout = timeout < 0 ? 0 : timeout;
 
         // Use poll() to wait for events on the monitored sockets.
-        int ready = poll(sockets, sizeof(sockets) / sizeof(sockets[0]), -1);
+        int ready = poll(sockets, sizeof(sockets) / sizeof(sockets[0]), timeout);
         if (ready == -1) {
             perror("poll");
             exit(EXIT_FAILURE);

@@ -20,7 +20,9 @@ typedef uint16_t dht_id;
 enum {
     LOOKUP,
     REPLY,
-    N_OPCODES,
+    STABILIZE,
+    NOTIFY,
+    JOIN,
 };
 
 /**
@@ -77,6 +79,11 @@ extern struct peer self;
 extern struct peer successor;
 
 /**
+ * A description of anchor node in the DHT
+*/
+extern struct peer anchor;
+
+/**
  * The socket used for communicating with the DHT
  */
 extern int dht_socket;
@@ -108,3 +115,11 @@ void dht_lookup(dht_id id);
  * Receive and process a DHT message
  */
 void dht_handle_socket(void);
+
+void dht_join(void);
+
+void dht_stabilize(void);
+
+unsigned long time_ms(void);
+
+int is_responsible(dht_id peer_predecessor, dht_id peer, dht_id id);
